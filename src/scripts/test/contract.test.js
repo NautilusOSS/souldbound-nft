@@ -2,6 +2,7 @@ import { expect } from "chai";
 import {
   approveMinter,
   arc72OwnerOf,
+  bootstrap,
   burn,
   deploy,
   fund,
@@ -40,6 +41,11 @@ describe("MintableSBNFT Testing", function () {
       ...owner,
     });
     appId = id0;
+    await bootstrap({
+      appId,
+      ...owner,
+      debug: true,
+    });
     await approveMinter({
       appId,
       account: minter.addr,

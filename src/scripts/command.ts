@@ -13,7 +13,10 @@ export const program = new Command();
 
 // Global options
 program
-  .option("-n, --network <string>", "Specify network (devnet, testnet, mainnet)")
+  .option(
+    "-n, --network <string>",
+    "Specify network (devnet, testnet, mainnet)"
+  )
   .option("--algod-server <string>", "Override Algorand node server URL")
   .option("--algod-port <number>", "Override Algorand node port")
   .option("--indexer-server <string>", "Override Algorand indexer server URL")
@@ -151,7 +154,8 @@ const getCurrentNetworkConfig = () => {
       globalOptions?.algodToken ||
       process.env.ALGOD_TOKEN ||
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    indexerToken: globalOptions?.indexerToken || process.env.INDEXER_TOKEN || "",
+    indexerToken:
+      globalOptions?.indexerToken || process.env.INDEXER_TOKEN || "",
   };
 
   if (globalOptions?.debug) {
@@ -208,7 +212,9 @@ const signSendAndConfirm = async (txns: string[], sk: Uint8Array) => {
     .map((t) => new Uint8Array(Buffer.from(t, "base64")))
     .map((t) => algosdk.decodeUnsignedTransaction(t))
     .map((t: any) => algosdk.signTransaction(t, sk));
-  const res = await algodClient.sendRawTransaction(stxns.map((s: any) => s.blob)).do();
+  const res = await algodClient
+    .sendRawTransaction(stxns.map((s: any) => s.blob))
+    .do();
   if ((globalThis as any).GLOBAL_DEBUG) console.log(res);
   return await Promise.all(
     stxns.map((s: any) => algosdk.waitForConfirmation(algodClient, s.txID, 4))
@@ -340,6 +346,20 @@ export const mint: any = async (options: MintOptions) => {
   return mintR;
 };
 
+program
+  .command("mint")
+  .requiredOption("-i, --appId <number>", "Specify appId")
+  .requiredOption("-a, --account <string>", "Specify account to mint")
+  .option("--debug", "Debug the deployment", false)
+  .description("Mint a specific contract type")
+  .action(async (options: MintOptions) => {
+    const mintR = await mint({
+      ...options,
+      appId: Number(options.appId),
+    });
+    console.log(mintR);
+  });
+
 interface ApproveMinterOptions {
   appId: number;
   account: string;
@@ -356,7 +376,8 @@ export const approveMinter: any = async (options: ApproveMinterOptions) => {
   const sk = options.sk || sks.deployer;
   const acc = { addr, sk };
   const ci = makeContract(options.appId, MintableSbnftSpec, acc);
-  ci.setPaymentAmount(120900); // adjust if your contract expects a different amount
+  const approveMinterCost = (await ci.approve_minter_cost()).returnValue;
+  ci.setPaymentAmount(approveMinterCost);
   const approveMinterR = await ci.approve_minter(
     options.account,
     options.approve ? 1 : 0
@@ -372,7 +393,11 @@ program
   .command("approve-minter")
   .requiredOption("-i, --appId <number>", "Specify appId")
   .requiredOption("-a, --account <string>", "Specify account to approve")
-  .requiredOption("-p, --approve <boolean>", "Specify if to approve or revoke", true)
+  .requiredOption(
+    "-p, --approve <boolean>",
+    "Specify if to approve or revoke",
+    true
+  )
   .option("--debug", "Debug the deployment", false)
   .description("Approve a minter for a specific contract type")
   .action(async (options: ApproveMinterOptions) => {
@@ -410,6 +435,20 @@ export const burn: any = async (options: BurnOptions) => {
   return burnR;
 };
 
+program
+  .command("burn")
+  .requiredOption("-i, --appId <number>", "Specify appId")
+  .requiredOption("-a, --account <string>", "Specify account to burn")
+  .option("--debug", "Debug the deployment", false)
+  .description("Burn a specific contract type")
+  .action(async (options: BurnOptions) => {
+    const burnR = await burn({
+      ...options,
+      appId: Number(options.appId),
+    });
+    console.log(burnR);
+  });
+
 interface ARC72TransferFromOptions {
   appId: number;
   from: string;
@@ -421,7 +460,9 @@ interface ARC72TransferFromOptions {
   simulate?: boolean;
 }
 
-export const arc72TransferFrom: any = async (options: ARC72TransferFromOptions) => {
+export const arc72TransferFrom: any = async (
+  options: ARC72TransferFromOptions
+) => {
   if (options.debug) console.log(options);
   const addr = options.addr || addressses.deployer;
   const sk = options.sk || sks.deployer;
@@ -477,32 +518,14 @@ export const setMetadataURI: any = async (options: SetMetadataURIOptions) => {
 
   const ci = makeContract(options.appId, MintableSbnftSpec, acc);
 
-  // ---- NEW: compute app account shortfall ----
-  const { algodClient } = getCurrentClients();
-  const appAddr = algosdk.getApplicationAddress(options.appId);
-  const acct = await algodClient.accountInformation(appAddr).do();
+  const setMetadataURICost = (await ci.set_metadata_uri_cost()).returnValue;
 
-  // Fields present in algod account info:
-  // - acct.amount: microAlgos currently held
-  // - acct["min-balance"]: required minimum (microAlgos)
-  const current = Number(acct.amount ?? 0);
-  const minreq  = Number(acct["min-balance"] ?? 0);
-  const shortfall = Math.max(0, minreq - current);
-
-  // Optional safety buffer (e.g., +2_000 microAlgos)
-  const buffer = 2_000;
-
-  const methodCost = (await ci.set_metadata_uri_cost()).returnValue;
-
-  // Pay both method cost and any shortfall in one atomic group
-  const payment = Number(methodCost) + shortfall + buffer;
-  if (options.debug) {
-    console.log({ appAddr, current, minreq, shortfall, methodCost, payment });
-  }
-  ci.setPaymentAmount(payment);
+  ci.setPaymentAmount(setMetadataURICost);
 
   const r = await ci.set_metadata_uri(
-    new Uint8Array(Buffer.from(padStringWithZeroBytes(options.metadataURI, 256)))
+    new Uint8Array(
+      Buffer.from(padStringWithZeroBytes(options.metadataURI, 256))
+    )
   );
 
   if (options.debug) console.log({ r });
@@ -517,7 +540,9 @@ program
   .requiredOption("-i, --appId <number>", "Specify appId")
   .requiredOption("-m, --metadataURI <string>", "Specify metadata URI")
   .option("--debug", "Debug the deployment", false)
-  .description("Get the cost to set the metadata URI for a specific contract type")
+  .description(
+    "Get the cost to set the metadata URI for a specific contract type"
+  )
   .action(async (options: SetMetadataURIOptions) => {
     const setMetadataURICostR = await setMetadataURI({
       ...options,
@@ -557,3 +582,155 @@ program
     });
     console.log(metadataURIR);
   });
+
+interface BootstrapOptions {
+  appId: number;
+  addr: string;
+  sk: Uint8Array;
+  debug?: boolean;
+  simulate?: boolean;
+}
+
+export const bootstrap: any = async (options: BootstrapOptions) => {
+  if (options.debug) console.log(options);
+  const addr = options.addr || addressses.deployer;
+  const sk = options.sk || sks.deployer;
+  const acc = { addr, sk };
+  const ci = makeContract(options.appId, MintableSbnftSpec, acc);
+  const bootstrapCost = (await ci.bootstrap_cost()).returnValue;
+  ci.setPaymentAmount(bootstrapCost);
+  const bootstrapR = await ci.bootstrap();
+  if (options.debug) console.log({ bootstrapR });
+  if (bootstrapR.success && !options.simulate) {
+    await signSendAndConfirm(bootstrapR.txns, sk);
+  }
+  return bootstrapR;
+};
+
+program
+  .command("bootstrap")
+  .requiredOption("-i, --appId <number>", "Specify appId")
+  .option("--debug", "Debug the deployment", false)
+  .description("Bootstrap a specific contract type")
+  .action(async (options: BootstrapOptions) => {
+    const bootstrapR = await bootstrap({
+      ...options,
+      appId: Number(options.appId),
+    });
+    console.log(bootstrapR);
+  });
+
+// upgrade
+
+interface PostUpdateOptions {
+  appId: number;
+  addr: string;
+  sk: any;
+  simulate?: boolean;
+  debug?: boolean;
+}
+
+export const postUpdate: any = async (options: PostUpdateOptions) => {
+  try {
+    console.log("=== PostUpdate START ===");
+    if (options.debug) {
+      console.log("PostUpdateOptions:", options);
+    }
+
+    // Validate app ID
+    const appId = Number(options.appId);
+    if (isNaN(appId) || appId <= 0) {
+      console.error("Invalid app ID:", options.appId);
+      return false;
+    }
+
+    const addr = options?.addr || addressses.deployer;
+    const sk = options?.sk || sks.deployer;
+    const acc = { addr, sk };
+
+    if (options.debug) {
+      console.log("App ID:", appId);
+      console.log("Address:", addr);
+    }
+
+    console.log("Creating contract instance...");
+    const ci = makeContract(appId, MintableSbnftSpec, acc);
+    console.log("Contract instance created successfully");
+
+    ci.setFee(2000);
+    console.log("Fee set to 2000");
+
+    if (options.debug) {
+      console.log("Calling post_update...");
+    }
+
+    console.log("About to call ci.post_update()...");
+    const postUpdateR = await ci.post_update();
+    console.log("post_update() call completed");
+
+    if (options.debug) {
+      console.log("post_update result:", postUpdateR);
+    }
+
+    if (postUpdateR.success) {
+      console.log("post_update was successful");
+      if (!options.simulate) {
+        if (options.debug) {
+          console.log("Executing transaction (not simulating)...");
+        }
+        await signSendAndConfirm(postUpdateR.txns, sk);
+        if (options.debug) {
+          console.log("Transaction confirmed");
+        }
+      } else {
+        if (options.debug) {
+          console.log("Simulation mode - skipping transaction execution");
+        }
+      }
+    } else {
+      console.log("post_update failed:", postUpdateR);
+    }
+
+    console.log("=== arc200PostUpdate END ===");
+    return postUpdateR.success;
+  } catch (e) {
+    console.error("Error in arc200PostUpdate:", e);
+    console.error(
+      "Error stack:",
+      e instanceof Error ? e.stack : "No stack trace"
+    );
+    return false; // Return false on error
+  }
+};
+
+program
+  .command("post-update")
+  .description("Post update the contract")
+  .requiredOption("-a, --appId <number>", "Specify the application ID")
+  .option("--simulate", "Simulate the post update", false)
+  .option("--debug", "Debug the deployment", false)
+  .option("--addr <string>", "Specify the address")
+  .action(async (options) => {
+    try {
+      console.log("Starting post-update command...");
+      const success = await postUpdate({
+        ...options,
+        appId: Number(options.appId),
+        addr: options.addr,
+        sk: sks.deployer,
+        debug: options.debug,
+        simulate: options.simulate,
+      });
+      if (!success) {
+        console.log("Failed to post update");
+      } else {
+        console.log("Post update completed successfully");
+      }
+    } catch (error) {
+      console.error("Error in post-update command:", error);
+    }
+  });
+
+program.command("whoami").action(async () => {
+  console.log("whoami", addr);
+});

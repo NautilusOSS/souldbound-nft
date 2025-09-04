@@ -23,6 +23,8 @@ from opensubmarine.utils.types import Bytes256
 
 mint_fee = 0
 mint_cost = 336700
+approve_minter_cost = 20900
+set_metadata_uri_cost = 109700
 
 
 class SoulboundARC72Token(ARC72Token):
@@ -49,7 +51,7 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
         # upgradeable state
         self.upgrader = Global.creator_address
         self.contract_version = UInt64(0)
-        self.deployment_version = UInt64(0)
+        self.deployment_version = UInt64(1)
         self.updatable = bool(1)
         # arc72 state
         self.totalSupply = BigUInt()
@@ -57,6 +59,18 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
         self.minter = BoxMap(Account, UInt64)
         self.soulbound_nft = UInt64(1)
         self.achievement_token = UInt64(1)
+        # bootstrap state
+        self.bootstrapped = UInt64(0)
+
+    @arc4.abimethod
+    def post_update(self) -> None:
+        self._only_upgrader()
+        self.contract_version = UInt64(0)
+        self.deployment_version = UInt64(1)
+
+    @subroutine
+    def _only_upgrader(self) -> None:
+        assert Txn.sender == self.upgrader, "only upgrader can call this function"
 
     @subroutine
     def _only_owner(self) -> None:
@@ -67,6 +81,23 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
         assert Txn.sender in self.minter, "only minter can call this function"
 
     @arc4.abimethod
+    def bootstrap(self) -> None:
+        self._only_owner()
+
+    @subroutine
+    def _bootstrap(self) -> None:
+        assert self.bootstrapped == 0, "contract already bootstrapped"
+        self.bootstrapped = UInt64(1)
+
+    @arc4.abimethod
+    def bootstrap_cost(self) -> arc4.UInt64:
+        return arc4.UInt64(self._bootstrap_cost())
+
+    @subroutine
+    def _bootstrap_cost(self) -> UInt64:
+        return Global.min_balance
+
+    @arc4.abimethod
     def approve_minter(self, to: arc4.Address, approve: arc4.UInt64) -> None:
         self._only_owner()
         self._approve_minter(to.native, approve.native)
@@ -74,6 +105,14 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
     @subroutine
     def _approve_minter(self, to: Account, approve: UInt64) -> None:
         self.minter[to] = approve
+
+    @arc4.abimethod
+    def approve_minter_cost(self) -> arc4.UInt64:
+        return arc4.UInt64(self._approve_minter_cost())
+
+    @subroutine
+    def _approve_minter_cost(self) -> UInt64:
+        return UInt64(approve_minter_cost)
 
     @arc4.abimethod
     def mint(
@@ -156,7 +195,7 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
 
     @subroutine
     def _set_metadata_uri_cost(self) -> UInt64:
-        return UInt64(109700)
+        return UInt64(set_metadata_uri_cost)
 
     @arc4.abimethod
     def metadata_uri(self) -> Bytes256:
