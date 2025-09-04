@@ -337,15 +337,32 @@ export const setMetadataURI = async (options) => {
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
-    const setMetadataURICost = (await ci.set_metadata_uri_cost()).returnValue;
-    ci.setPaymentAmount(setMetadataURICost);
-    const setMetadataURIR = await ci.set_metadata_uri(new Uint8Array(Buffer.from(padStringWithZeroBytes(options.metadataURI, 256))));
-    if (options.debug)
-        console.log({ setMetadataURIR });
-    if (setMetadataURIR.success && !options.simulate) {
-        await signSendAndConfirm(setMetadataURIR.txns, sk);
+    // ---- NEW: compute app account shortfall ----
+    const { algodClient } = getCurrentClients();
+    const appAddr = algosdk.getApplicationAddress(options.appId);
+    const acct = await algodClient.accountInformation(appAddr).do();
+    // Fields present in algod account info:
+    // - acct.amount: microAlgos currently held
+    // - acct["min-balance"]: required minimum (microAlgos)
+    const current = Number(acct.amount ?? 0);
+    const minreq = Number(acct["min-balance"] ?? 0);
+    const shortfall = Math.max(0, minreq - current);
+    // Optional safety buffer (e.g., +2_000 microAlgos)
+    const buffer = 2_000;
+    const methodCost = (await ci.set_metadata_uri_cost()).returnValue;
+    // Pay both method cost and any shortfall in one atomic group
+    const payment = Number(methodCost) + shortfall + buffer;
+    if (options.debug) {
+        console.log({ appAddr, current, minreq, shortfall, methodCost, payment });
     }
-    return setMetadataURIR;
+    ci.setPaymentAmount(payment);
+    const r = await ci.set_metadata_uri(new Uint8Array(Buffer.from(padStringWithZeroBytes(options.metadataURI, 256))));
+    if (options.debug)
+        console.log({ r });
+    if (r.success && !options.simulate) {
+        await signSendAndConfirm(r.txns, sk);
+    }
+    return r;
 };
 program
     .command("set-metadata-uri")
