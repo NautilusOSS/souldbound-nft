@@ -17,15 +17,14 @@ program
     .option("-d, --debug", "Enable debug mode")
     .option("-s, --simulate", "Simulate transactions without sending")
     .option("--dry-run", "Show what would be done without executing")
-    .option("-h, --help", "Show help information");
+    .option("-h, --help", "Show help information"); // (Commander also adds this automatically; keeping to avoid API change)
 // Hook to handle global options and configure network
-program.hook("preAction", (thisCommand, actionCommand) => {
+program.hook("preAction", (thisCommand) => {
     const options = thisCommand.opts();
-    // Set defaults for undefined options
-    const network = options.network || "devnet";
-    const debug = options.debug || false;
-    const simulate = options.simulate || false;
-    const dryRun = options.dryRun || false;
+    const network = (options.network || "devnet").toLowerCase();
+    const debug = !!options.debug;
+    const simulate = !!options.simulate;
+    const dryRun = !!options.dryRun;
     console.log("Using network", network);
     // Update network configuration based on global options
     if (network === "testnet") {
@@ -33,7 +32,6 @@ program.hook("preAction", (thisCommand, actionCommand) => {
         const ALGO_INDEXER_SERVER = "https://testnet-idx.voi.nodely.dev";
         const ALGO_PORT = 443;
         const ALGO_INDEXER_PORT = 443;
-        // Update global variables if not overridden
         if (!options.algodServer) {
             globalThis.ALGO_SERVER = ALGO_SERVER;
             globalThis.ALGO_PORT = ALGO_PORT;
@@ -48,7 +46,6 @@ program.hook("preAction", (thisCommand, actionCommand) => {
         const ALGO_PORT = 443;
         const ALGO_INDEXER_SERVER = "https://mainnet-idx.voi.nodely.dev";
         const ALGO_INDEXER_PORT = 443;
-        // Update global variables if not overridden
         if (!options.algodServer) {
             globalThis.ALGO_SERVER = ALGO_SERVER;
             globalThis.ALGO_PORT = ALGO_PORT;
@@ -58,12 +55,10 @@ program.hook("preAction", (thisCommand, actionCommand) => {
             globalThis.ALGO_INDEXER_PORT = ALGO_INDEXER_PORT;
         }
     }
-    // Set global debug and simulate flags
     globalThis.GLOBAL_DEBUG = debug;
     globalThis.GLOBAL_SIMULATE = simulate;
     globalThis.GLOBAL_DRY_RUN = dryRun;
-    // Store the current options globally for client creation
-    globalThis.CURRENT_NETWORK_OPTIONS = options;
+    globalThis.CURRENT_NETWORK_OPTIONS = { ...options, network };
 });
 const { MN } = process.env;
 export const acc = algosdk.mnemonicToSecretKey(MN || "");
@@ -74,57 +69,63 @@ export const addressses = {
 export const sks = {
     deployer: sk,
 };
-// DEVNET
-const ALGO_SERVER = "http://localhost";
-const ALGO_PORT = 4001;
-const ALGO_INDEXER_SERVER = "http://localhost";
-const ALGO_INDEXER_PORT = 8980;
-// TESTNET
-// const ALGO_SERVER = "https://testnet-api.voi.nodely.dev";
-// const ALGO_INDEXER_SERVER = "https://testnet-idx.voi.nodely.dev";
-// MAINNET
-// const ALGO_SERVER = "https://mainnet-api.voi.nodely.dev";
-// const ALGO_INDEXER_SERVER = "https://mainnet-idx.voi.nodely.dev";
-const algodServerURL = process.env.ALGOD_SERVER || ALGO_SERVER;
-const algodServerPort = process.env.ALGOD_PORT || ALGO_PORT;
-export const algodClient = new algosdk.Algodv2(process.env.ALGOD_TOKEN ||
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", algodServerURL, algodServerPort);
-const indexerServerURL = process.env.INDEXER_SERVER || ALGO_INDEXER_SERVER;
-const indexerServerPort = process.env.INDEXER_PORT || ALGO_INDEXER_PORT;
-export const indexerClient = new algosdk.Indexer(process.env.INDEXER_TOKEN || "", indexerServerURL, indexerServerPort);
+// DEVNET defaults (only used if nothing else is provided)
+const DEVNET_ALGO_SERVER = "http://localhost";
+const DEVNET_ALGO_PORT = 4001;
+const DEVNET_ALGO_INDEXER_SERVER = "http://localhost";
+const DEVNET_ALGO_INDEXER_PORT = 8980;
 // Function to get current network configuration
 const getCurrentNetworkConfig = () => {
     const globalOptions = globalThis.CURRENT_NETWORK_OPTIONS;
-    if (!globalOptions) {
-        //console.log("No global options found, using default devnet configuration");
+    // Base defaults by network (fall back to devnet)
+    const base = (() => {
+        const network = globalOptions?.network || "devnet";
+        if (network === "testnet") {
+            return {
+                server: "https://testnet-api.voi.nodely.dev",
+                port: 443,
+                indexerServer: "https://testnet-idx.voi.nodely.dev",
+                indexerPort: 443,
+            };
+        }
+        if (network === "mainnet") {
+            return {
+                server: "https://mainnet-api.voi.nodely.dev",
+                port: 443,
+                indexerServer: "https://mainnet-idx.voi.nodely.dev",
+                indexerPort: 443,
+            };
+        }
         return {
-            server: ALGO_SERVER,
-            port: ALGO_PORT,
-            indexerServer: ALGO_INDEXER_SERVER,
-            indexerPort: ALGO_INDEXER_PORT,
-            token: process.env.ALGOD_TOKEN ||
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            indexerToken: process.env.INDEXER_TOKEN || "",
+            server: DEVNET_ALGO_SERVER,
+            port: DEVNET_ALGO_PORT,
+            indexerServer: DEVNET_ALGO_INDEXER_SERVER,
+            indexerPort: DEVNET_ALGO_INDEXER_PORT,
         };
-    }
-    console.log("Global options found:", globalOptions);
+    })();
     const config = {
-        server: globalOptions.algodServer ||
+        server: globalOptions?.algodServer ||
             globalThis.ALGO_SERVER ||
-            ALGO_SERVER,
-        port: globalOptions.algodPort || globalThis.ALGO_PORT || ALGO_PORT,
-        indexerServer: globalOptions.indexerServer ||
+            process.env.ALGOD_SERVER ||
+            base.server,
+        port: Number(globalOptions?.algodPort ||
+            globalThis.ALGO_PORT ||
+            process.env.ALGOD_PORT ||
+            base.port),
+        indexerServer: globalOptions?.indexerServer ||
             globalThis.ALGO_INDEXER_SERVER ||
-            ALGO_INDEXER_SERVER,
-        indexerPort: globalOptions.indexerPort ||
+            process.env.INDEXER_SERVER ||
+            base.indexerServer,
+        indexerPort: Number(globalOptions?.indexerPort ||
             globalThis.ALGO_INDEXER_PORT ||
-            ALGO_INDEXER_PORT,
-        token: globalOptions.algodToken ||
+            process.env.INDEXER_PORT ||
+            base.indexerPort),
+        token: globalOptions?.algodToken ||
             process.env.ALGOD_TOKEN ||
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        indexerToken: globalOptions.indexerToken || process.env.INDEXER_TOKEN || "",
+        indexerToken: globalOptions?.indexerToken || process.env.INDEXER_TOKEN || "",
     };
-    if (globalOptions.debug) {
+    if (globalOptions?.debug) {
         console.log("Network configuration:", config);
     }
     return config;
@@ -136,22 +137,19 @@ export const getCurrentClients = () => {
     return { algodClient, indexerClient };
 };
 function stripTrailingZeroBytes(str) {
-    return str.replace(/\0+$/, ""); // Matches one or more '\0' at the end of the string and removes them
+    return str.replace(/\0+$/, "");
 }
 function padStringWithZeroBytes(input, length) {
     const paddingLength = length - input.length;
-    if (paddingLength > 0) {
-        const zeroBytes = "\0".repeat(paddingLength);
-        return input + zeroBytes;
-    }
-    return input; // Return the original string if it's already long enough
+    return paddingLength > 0 ? input + "\0".repeat(paddingLength) : input;
 }
 export const fund = async (addr, amount) => {
     console.log("funding", addr, amount);
+    const { algodClient } = getCurrentClients(); // <-- use current client
     const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
         from: addressses.deployer,
         to: addr,
-        amount: amount,
+        amount,
         suggestedParams: await algodClient.getTransactionParams().do(),
     });
     const signedTxn = algosdk.signTransaction(txn, sks.deployer);
@@ -159,26 +157,22 @@ export const fund = async (addr, amount) => {
     await algosdk.waitForConfirmation(algodClient, res.txId, 4);
 };
 const signSendAndConfirm = async (txns, sk) => {
-    const { algodClient: currentAlgodClient } = getCurrentClients();
+    const { algodClient } = getCurrentClients(); // <-- use current client
     const stxns = txns
         .map((t) => new Uint8Array(Buffer.from(t, "base64")))
-        .map((t) => {
-        const txn = algosdk.decodeUnsignedTransaction(t);
-        return txn;
-    })
+        .map((t) => algosdk.decodeUnsignedTransaction(t))
         .map((t) => algosdk.signTransaction(t, sk));
-    const res = await currentAlgodClient
-        .sendRawTransaction(stxns.map((txn) => txn.blob))
-        .do();
-    console.log(res);
-    return await Promise.all(stxns.map((res) => algosdk.waitForConfirmation(currentAlgodClient, res.txID, 4)));
+    const res = await algodClient.sendRawTransaction(stxns.map((s) => s.blob)).do();
+    if (globalThis.GLOBAL_DEBUG)
+        console.log(res);
+    return await Promise.all(stxns.map((s) => algosdk.waitForConfirmation(algodClient, s.txID, 4)));
 };
 export const getAccount = async () => {
     const acc = algosdk.generateAccount();
     return acc;
 };
 const makeContract = (appId, appSpec, acc) => {
-    const { algodClient, indexerClient } = getCurrentClients();
+    const { algodClient, indexerClient } = getCurrentClients(); // <-- use current clients
     return new CONTRACT(appId, algodClient, indexerClient, {
         name: "",
         desc: "",
@@ -195,33 +189,33 @@ export const deploy = async (options) => {
     }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
-    const deployer = {
-        addr,
-        sk,
-    };
+    const deployer = { addr, sk };
     let Client;
     switch (options.type) {
-        case "MintableSBNFT": {
+        case "MintableSBNFT":
             Client = MintableSbnftClient;
             break;
-        }
+        default:
+            throw new Error(`Unknown deploy type: ${options.type}`);
     }
+    const { algodClient, indexerClient } = getCurrentClients(); // <-- use current clients
     const clientParams = {
         resolveBy: "creatorAndName",
-        findExistingUsing: indexerClient,
+        findExistingUsing: indexerClient, // <-- current indexer
         creatorAddress: deployer.addr,
         name: options.name || "",
         sender: deployer,
     };
     const appClient = Client ? new Client(clientParams, algodClient) : null;
-    if (appClient) {
-        const app = await appClient.deploy({
-            deployTimeParams: {},
-            onUpdate: "update",
-            onSchemaBreak: "fail",
-        });
-        return { appId: app.appId, appClient: appClient };
+    if (!appClient) {
+        throw new Error("Failed to construct app client");
     }
+    const app = await appClient.deploy({
+        deployTimeParams: {},
+        onUpdate: "update",
+        onSchemaBreak: "fail",
+    });
+    return { appId: app.appId, appClient };
 };
 program
     .command("deploy")
@@ -230,17 +224,22 @@ program
     .option("--debug", "Debug the deployment", false)
     .description("Deploy a specific contract type")
     .action(async (options) => {
-    const apid = await deploy(options);
-    if (!apid) {
-        console.log("Failed to deploy contract");
-        return;
+    try {
+        const apid = await deploy(options);
+        if (!apid) {
+            console.log("Failed to deploy contract");
+            return;
+        }
+        console.log(apid);
     }
-    console.log(apid);
+    catch (e) {
+        console.error(e);
+        process.exit(1);
+    }
 });
 export const mint = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
@@ -248,33 +247,26 @@ export const mint = async (options) => {
     const mintCost = (await ci.mint_cost()).returnValue;
     ci.setPaymentAmount(mintCost);
     const mintR = await ci.mint(options.account);
-    if (options.debug) {
+    if (options.debug)
         console.log({ mintR });
-    }
-    if (mintR.success) {
-        if (!options.simulate) {
-            await signSendAndConfirm(mintR.txns, sk);
-        }
+    if (mintR.success && !options.simulate) {
+        await signSendAndConfirm(mintR.txns, sk);
     }
     return mintR;
 };
 export const approveMinter = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
-    ci.setPaymentAmount(120900);
+    ci.setPaymentAmount(120900); // adjust if your contract expects a different amount
     const approveMinterR = await ci.approve_minter(options.account, options.approve ? 1 : 0);
-    if (options.debug) {
+    if (options.debug)
         console.log({ approveMinterR });
-    }
-    if (approveMinterR.success) {
-        if (!options.simulate) {
-            await signSendAndConfirm(approveMinterR.txns, sk);
-        }
+    if (approveMinterR.success && !options.simulate) {
+        await signSendAndConfirm(approveMinterR.txns, sk);
     }
     return approveMinterR;
 };
@@ -297,61 +289,50 @@ program
     console.log(apid);
 });
 export const burn = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
     const burnR = await ci.burn(options.account);
-    if (options.debug) {
+    if (options.debug)
         console.log({ burnR });
-    }
-    if (burnR.success) {
-        if (!options.simulate) {
-            await signSendAndConfirm(burnR.txns, sk);
-        }
+    if (burnR.success && !options.simulate) {
+        await signSendAndConfirm(burnR.txns, sk);
     }
     return burnR;
 };
 export const arc72TransferFrom = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
     const arc72TransferFromR = await ci.arc72_transferFrom(options.from, options.to, options.tokenId);
-    if (options.debug) {
+    if (options.debug)
         console.log({ arc72TransferFromR });
-    }
-    if (arc72TransferFromR.success) {
-        if (!options.simulate) {
-            await signSendAndConfirm(arc72TransferFromR.txns, sk);
-        }
+    if (arc72TransferFromR.success && !options.simulate) {
+        await signSendAndConfirm(arc72TransferFromR.txns, sk);
     }
     return arc72TransferFromR;
 };
 export const arc72OwnerOf = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
     const arc72OwnerOfR = await ci.arc72_ownerOf(options.tokenId);
-    if (options.debug) {
+    if (options.debug)
         console.log({ arc72OwnerOfR });
-    }
     return arc72OwnerOfR.returnValue;
 };
 export const setMetadataURI = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
@@ -359,13 +340,10 @@ export const setMetadataURI = async (options) => {
     const setMetadataURICost = (await ci.set_metadata_uri_cost()).returnValue;
     ci.setPaymentAmount(setMetadataURICost);
     const setMetadataURIR = await ci.set_metadata_uri(new Uint8Array(Buffer.from(padStringWithZeroBytes(options.metadataURI, 256))));
-    if (options.debug) {
+    if (options.debug)
         console.log({ setMetadataURIR });
-    }
-    if (setMetadataURIR.success) {
-        if (!options.simulate) {
-            await signSendAndConfirm(setMetadataURIR.txns, sk);
-        }
+    if (setMetadataURIR.success && !options.simulate) {
+        await signSendAndConfirm(setMetadataURIR.txns, sk);
     }
     return setMetadataURIR;
 };
@@ -383,18 +361,16 @@ program
     console.log(setMetadataURICostR);
 });
 export const metadataURI = async (options) => {
-    if (options.debug) {
+    if (options.debug)
         console.log(options);
-    }
     const addr = options.addr || addressses.deployer;
     const sk = options.sk || sks.deployer;
     const acc = { addr, sk };
     const ci = makeContract(options.appId, MintableSbnftSpec, acc);
-    const metadataURI = await ci.metadata_uri();
-    if (options.debug) {
-        console.log({ metadataURI });
-    }
-    return stripTrailingZeroBytes(metadataURI.returnValue);
+    const metadataURIR = await ci.metadata_uri();
+    if (options.debug)
+        console.log({ metadataURIR });
+    return stripTrailingZeroBytes(metadataURIR.returnValue);
 };
 program
     .command("metadata-uri")
