@@ -46,6 +46,7 @@ describe("MintableSBNFT Testing", function () {
       ...owner,
       debug: true,
     });
+    expect(appId).to.not.equal(0);
     await approveMinter({
       appId,
       account: minter.addr,
@@ -53,88 +54,78 @@ describe("MintableSBNFT Testing", function () {
       ...owner,
       debug: true,
     });
-    expect(appId).to.not.equal(0);
   });
 
   afterEach(async function () {});
 
-  it("should burn an NFT", async function () {
+  it("should mint an NFT", async function () {
     const mintR = await mint({
       appId,
       account: player.addr,
       ...minter,
       debug: true,
     });
-    const burnR = await burn({
-      appId,
-      account: player.addr,
-      ...minter,
-      debug: true,
-    });
     expect(mintR.success).to.be.true;
-    expect(burnR.success).to.be.true;
   });
 
-  it("should not burn an NFT that does not exist", async function () {
-    const burnR = await burn({
-      appId,
-      account: player.addr,
-      ...minter,
-      debug: true,
-    });
-  });
-
-  it("should not allow a non-minter to burn an NFT", async function () {
+  it("should not allow a non-minter to mint an NFT", async function () {
     const acc2 = await getAccount();
     await fund(acc2.addr, 10e6);
     const mintR = await mint({
       appId,
       account: player.addr,
-      ...minter,
-      debug: true,
-    });
-    const burnR = await burn({
-      appId,
-      account: player.addr,
       ...acc2,
       debug: true,
     });
-    expect(mintR.success).to.be.true;
-    expect(burnR.success).to.be.false;
+    const mintR2 = await mint({
+      appId,
+      account: player.addr,
+      ...player,
+      debug: true,
+    });
+    const mintR3 = await mint({
+      appId,
+      account: player.addr,
+      ...minter,
+      debug: true,
+    });
+    expect(mintR.success).to.be.false;
+    expect(mintR2.success).to.be.false;
+    expect(mintR3.success).to.be.true;
   });
 
-  it("should not allow transfer of an NFT", async function () {
+  it("should not allow minting and an nft that is already minted", async function () {
     const mintR = await mint({
       appId,
       account: player.addr,
       ...minter,
       debug: true,
     });
-    const decodedPlayerAddr = algosdk.decodeAddress(player.addr);
-    console.log({ decodedPlayerAddr });
-    const ownerOfR = await arc72OwnerOf({
+    expect(mintR.success).to.be.true;
+    const mintR2 = await mint({
       appId,
-      tokenId: BigInt(
-        "0x" + Buffer.from(decodedPlayerAddr.publicKey).toString("hex")
-      ),
+      account: player.addr,
+      ...minter,
+      debug: true,
+    });
+    const mintR3 = await mint({
+      appId,
+      account: player2.addr,
+      ...minter,
+      debug: true,
+    });
+    expect(mintR2.success).to.be.false;
+    expect(mintR2.success).to.be.false;
+    expect(mintR3.success).to.be.true;
+  });
+
+  it("should allow owner to mint an NFT", async function () {
+    const mintR = await mint({
+      appId,
+      account: player.addr,
+      ...owner,
       debug: true,
     });
     expect(mintR.success).to.be.true;
-  });
-
-  it("should set the metadata URI", async function () {
-    const setMetadataURIR = await setMetadataURI({
-      appId,
-      metadataURI: "https://example.com",
-      ...owner,
-      debug: true,
-    });
-    const metadataURIR = await metadataURI({
-      appId,
-      ...owner,
-      debug: true,
-    });
-    expect(metadataURIR).to.equal("https://example.com");
-    expect(setMetadataURIR.success).to.be.true;
   });
 });

@@ -51,7 +51,7 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
         # upgradeable state
         self.upgrader = Global.creator_address
         self.contract_version = UInt64(0)
-        self.deployment_version = UInt64(1)
+        self.deployment_version = UInt64(2)
         self.updatable = bool(1)
         # arc72 state
         self.totalSupply = BigUInt()
@@ -66,7 +66,7 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
     def post_update(self) -> None:
         self._only_upgrader()
         self.contract_version = UInt64(0)
-        self.deployment_version = UInt64(1)
+        self.deployment_version = UInt64(2)
 
     @subroutine
     def _only_upgrader(self) -> None:
@@ -78,7 +78,9 @@ class MintableSBNFT(SoulboundARC72Token, Ownable, Upgradeable):
 
     @subroutine
     def _only_minter(self) -> None:
-        assert Txn.sender in self.minter, "only minter can call this function"
+        assert (
+            Txn.sender in self.minter or Txn.sender == self.owner
+        ), "only minter can call this function"
 
     @arc4.abimethod
     def bootstrap(self) -> None:
